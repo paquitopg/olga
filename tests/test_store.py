@@ -14,20 +14,6 @@ def git(*args, cwd):
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
 
 
-@pytest.fixture
-def remote(tmp_path):
-    path = tmp_path / "remote.git"
-    git("init", "--bare", "-b", "main", str(path), cwd=tmp_path)
-    return path
-
-
-@pytest.fixture
-def store(tmp_path, remote):
-    s = Store(tmp_path / "library", str(remote), TOKEN)
-    s.ensure_clone()
-    return s
-
-
 def remote_log(remote):
     out = subprocess.run(["git", "log", "--oneline"], cwd=remote, capture_output=True, text=True).stdout
     return [l for l in out.splitlines() if l]
@@ -81,3 +67,10 @@ def test_themes_come_from_fiches_without_case_duplicates(store):
     b.themes = ["saas"]
     store.save(b)
     assert sorted(t.lower() for t in store.themes()) == ["immobilier", "saas"]
+
+
+def test_find_by_thread_returns_the_matching_fiche_or_none(store):
+    a = store.create("a", thread_id=11)
+    store.create("b", thread_id=12)
+    assert store.find_by_thread(11).id == a.id
+    assert store.find_by_thread(99) is None

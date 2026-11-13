@@ -57,6 +57,9 @@ class Store:
         fiches = [parse(p.read_text()) for p in (self.dir / "fiches").glob("*.md")]
         return sorted(fiches, key=lambda f: f.updated, reverse=True)
 
+    def find_by_thread(self, thread_id):
+        return next((f for f in self.list() if f.thread_id == thread_id), None)
+
     def themes(self):
         seen = {}
         for f in self.list():
