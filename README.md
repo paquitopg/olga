@@ -9,6 +9,8 @@ Plan complet : `docs/plans/2026-11-13-1652-feat-telegram-idea-desk-plan.md`.
 
 ## Utilisation
 
+La langue d'une fiche (français ou anglais) est choisie selon le sujet : français si l'idée concerne la France, anglais sinon, quelle que soit la langue dans laquelle vous écrivez.
+
 - Envoyez une idée au bot : accusé immédiat avec le lien de la fiche, puis les objections.
 - Répondez dans le fil de l'idée : la fiche est mise à jour, vous recevez le lien.
 - `/prete` dans le fil marque la fiche « prête ».
@@ -16,10 +18,10 @@ Plan complet : `docs/plans/2026-11-13-1652-feat-telegram-idea-desk-plan.md`.
 
 ## Mise en route (étapes manuelles, aucune valeur secrète dans Git)
 
-1. **Bot Telegram** : créez-le avec BotFather (`/newbot`) et activez les sujets en conversation
-   privée dans ses réglages. Le nom exact du réglage et le support sur votre téléphone ne sont pas
-   vérifiés : c'est le premier essai réel. Si les sujets ne marchent pas, il faut passer à un
-   repli par réponse chaînée (non construit).
+1. **Bot Telegram** : créez-le avec BotFather (`/newbot`), puis activez le **Threaded mode** dans
+   les réglages du bot, depuis la Mini App de BotFather (le menu texte ne l'a pas). Sans lui, Telegram
+   répond `the chat is not a forum` : l'idée est gardée mais sans fil, et vos réponses ne peuvent pas
+   être rattachées à la fiche. Le repli par réponse chaînée n'est pas construit.
 2. **Dépôt des fiches** : créez un dépôt GitHub privé `idea-library` et un jeton limité à ce seul
    dépôt (lecture et écriture du contenu).
 3. **Jeton Claude** : lancez `claude setup-token` sur votre poste. L'usage scripté d'un abonnement

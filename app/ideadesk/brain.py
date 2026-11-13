@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from string import Template
 
-from .fiche import Objection
+from .fiche import DEFAULT_LANG, LABELS, Objection
 
 PROMPTS = Path(__file__).parent / "prompts"
 WEB_TOOLS = "WebSearch,WebFetch"
@@ -63,8 +63,10 @@ class Brain:
         return data
 
     def challenge(self, fiche):
+        """Renvoie (langue, objections) : la langue (fr ou en) est choisie par le cerveau selon le sujet de l'idee."""
         prompt = Template((PROMPTS / "challenge.md").read_text()).substitute(IDEE=fiche.raw_idea)
         data = self._json(prompt, WEB_TOOLS)
+        lang = data.get("langue") if data.get("langue") in LABELS else DEFAULT_LANG
         found = []
         for item in data.get("objections") or []:
             if not isinstance(item, dict):
@@ -75,7 +77,7 @@ class Brain:
                 found.append(Objection(f"O{len(found) + 1}", texte, sources))
         if not found:
             raise BrainUnavailable("aucune objection sourcée")
-        return found
+        return lang, found
 
     def integrate(self, fiche, answer, themes):
         state = {
@@ -84,7 +86,8 @@ class Brain:
             "questions_ouvertes": fiche.open_questions,
         }
         prompt = Template((PROMPTS / "integrate.md").read_text()).substitute(
-            FICHE=json.dumps(state, ensure_ascii=False), REPONSE=answer, THEMES=", ".join(themes) or "aucun")
+            FICHE=json.dumps(state, ensure_ascii=False), REPONSE=answer, THEMES=", ".join(themes) or "none",
+            LANGUE={"fr": "French", "en": "English"}[fiche.lang])
         data = self._json(prompt, "")
         needed = ("probleme", "cible", "idee", "reponses", "questions_ouvertes", "themes")
         if any(k not in data for k in needed):

@@ -47,3 +47,16 @@ def test_marking_ready_changes_only_the_status():
 
 def test_two_new_fiches_get_distinct_ids():
     assert Fiche.new("a").id != Fiche.new("b").id
+
+
+def test_english_headings_roundtrip_and_a_fiche_without_language_is_french():
+    english = sample()
+    english.lang = "en"
+    text = render(english)
+    assert "## Raw idea" in text and "## Objections and answers" in text and "**Answer:**" in text
+    assert parse(text) == english
+
+    french = sample()
+    french.lang = "fr"
+    legacy = render(french).replace("lang: fr\n", "")
+    assert "## Idée brute" in legacy and parse(legacy).lang == "fr"

@@ -4,16 +4,16 @@
 <p><a href="/">← Bibliothèque</a></p>
 <h1>{{ fiche.title }}</h1>
 <p class="tag">{{ fiche.status }} · {{ fiche.themes|join(", ") }}</p>
-<h2>Idée brute</h2><blockquote>{{ fiche.raw_idea }}</blockquote>
-<h2>Problème</h2>{{ fiche.problem|md|safe }}
-<h2>Cible</h2>{{ fiche.target|md|safe }}
-<h2>Idée</h2>{{ fiche.idea|md|safe }}
-<h2>Objections et réponses</h2>
+<h2>{{ t.raw }}</h2><blockquote>{{ fiche.raw_idea }}</blockquote>
+<h2>{{ t.problem }}</h2>{{ fiche.problem|md|safe }}
+<h2>{{ t.target }}</h2>{{ fiche.target|md|safe }}
+<h2>{{ t.idea }}</h2>{{ fiche.idea|md|safe }}
+<h2>{{ t.obj }}</h2>
 {% for o in fiche.objections %}
   <h3>{{ o.id }}. {{ o.texte }}</h3>
   <ul>{% for u in o.sources %}{% if u.startswith(("http://", "https://")) %}<li><a href="{{ u }}" rel="noopener noreferrer nofollow">{{ u }}</a></li>{% endif %}{% endfor %}</ul>
-  {% if o.reponse %}<p><strong>Réponse :</strong></p>{{ o.reponse|md|safe }}{% endif %}
+  {% if o.reponse %}<p><strong>{{ t.answer }}</strong></p>{{ o.reponse|md|safe }}{% endif %}
 {% endfor %}
-<h2>Questions ouvertes</h2>
+<h2>{{ t.questions }}</h2>
 <ul>{% for q in fiche.open_questions %}<li>{{ q }}</li>{% endfor %}</ul>
 {% endblock %}

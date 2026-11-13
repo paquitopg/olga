@@ -100,3 +100,13 @@ def test_unknown_or_odd_fiche_ids_are_404_when_logged_in(client, fiches):
 def test_pages_forbid_remote_resources(client):
     csp = client.get("/login").headers["content-security-policy"]
     assert "img-src 'self'" in csp and "default-src 'none'" in csp
+
+
+def test_the_fiche_page_uses_the_headings_of_its_language(client, store, fiches):
+    draft, ready = fiches
+    login(client)
+    english = client.get(f"/fiche/{draft.id}").text
+    assert "<h2>Raw idea</h2>" in english and "<h2>Open questions</h2>" in english
+    draft.lang = "fr"
+    store.save(draft)
+    assert "<h2>Idée brute</h2>" in client.get(f"/fiche/{draft.id}").text
