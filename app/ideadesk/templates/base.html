@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}Idées{% endblock %}</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 16px; max-width: 42rem; margin-inline: auto; }
+  a { color: #2563eb; } h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 1.6rem; }
+  .chips a { display: inline-block; margin: 0 .4rem .4rem 0; padding: .2rem .7rem; border: 1px solid #8884; border-radius: 1rem; text-decoration: none; }
+  .chips a.on { background: #2563eb; color: #fff; }
+  ul.list { list-style: none; padding: 0; } ul.list li { padding: .6rem 0; border-bottom: 1px solid #8883; }
+  .tag { font-size: .8rem; opacity: .7; } blockquote, pre { white-space: pre-wrap; border-left: 3px solid #8885; margin: 0; padding-left: .8rem; }
+  input, button { font: inherit; padding: .5rem; }
+</style>
+</head>
+<body>{% block body %}{% endblock %}</body>
+</html>

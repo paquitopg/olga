@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Connexion{% endblock %}
+{% block body %}
+<h1>Connexion</h1>
+{% if error %}<p role="alert">Mot de passe refusé.</p>{% endif %}
+<form method="post" action="/login">
+  <p><input type="password" name="password" autocomplete="current-password" autofocus required></p>
+  <p><button type="submit">Entrer</button></p>
+</form>
+{% endblock %}
