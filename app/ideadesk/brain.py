@@ -15,6 +15,10 @@ WEB_TOOLS = "WebSearch,WebFetch"
 URL = re.compile(r"https?://\S+")  # une seule ligne : une source ne peut pas ajouter de sections a la fiche
 
 
+LANG_NAME = {"fr": "French", "en": "English"}
+LANG_AUTO = 'Choose the output language from the SUBJECT of the idea, not from the language it was written in: "fr" (French) when the subject concerns France (the French market, French law or institutions, a French-speaking audience), otherwise "en" (English). Write every objection in that language.'
+
+
 class BrainUnavailable(Exception):
     """Le challenge ou l'integration n'a pas pu etre fait (recherche, quota, delai, sortie illisible)."""
 
@@ -62,11 +66,15 @@ class Brain:
             raise BrainUnavailable("réponse inattendue")
         return data
 
-    def challenge(self, fiche):
-        """Renvoie (langue, objections) : la langue (fr ou en) est choisie par le cerveau selon le sujet de l'idee."""
-        prompt = Template((PROMPTS / "challenge.md").read_text()).substitute(IDEE=fiche.raw_idea)
+    def challenge(self, fiche, force_lang=None):
+        """Renvoie (langue, objections). Sans `force_lang`, le cerveau choisit la langue (fr ou en) selon le sujet.
+
+        Les nouvelles objections continuent la numerotation de celles deja posees, qu'il ne doit pas repeter."""
+        rule = LANG_AUTO if not force_lang else f"Write every objection in {LANG_NAME[force_lang]}."
+        deja = " | ".join(o.texte for o in fiche.objections) or "none"
+        prompt = Template((PROMPTS / "challenge.md").read_text()).substitute(IDEE=fiche.raw_idea, LANGUE_RULE=rule, DEJA=deja)
         data = self._json(prompt, WEB_TOOLS)
-        lang = data.get("langue") if data.get("langue") in LABELS else DEFAULT_LANG
+        lang = force_lang or (data.get("langue") if data.get("langue") in LABELS else DEFAULT_LANG)
         found = []
         for item in data.get("objections") or []:
             if not isinstance(item, dict):
@@ -74,7 +82,7 @@ class Brain:
             sources = [u for u in item.get("sources") or [] if isinstance(u, str) and URL.fullmatch(u)]
             texte = str(item.get("texte", "")).strip()
             if texte and sources:
-                found.append(Objection(f"O{len(found) + 1}", texte, sources))
+                found.append(Objection(f"O{len(fiche.objections) + len(found) + 1}", texte, sources))
         if not found:
             raise BrainUnavailable("aucune objection sourcée")
         return lang, found
@@ -87,7 +95,7 @@ class Brain:
         }
         prompt = Template((PROMPTS / "integrate.md").read_text()).substitute(
             FICHE=json.dumps(state, ensure_ascii=False), REPONSE=answer, THEMES=", ".join(themes) or "none",
-            LANGUE={"fr": "French", "en": "English"}[fiche.lang])
+            LANGUE=LANG_NAME[fiche.lang])
         data = self._json(prompt, "")
         needed = ("probleme", "cible", "idee", "reponses", "questions_ouvertes", "themes")
         if any(k not in data for k in needed):

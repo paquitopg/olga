@@ -18,6 +18,10 @@ MSG = {
         "ready": "Fiche prête : {url}",
         "use_ready": "Utilise /prete dans le fil d'une idée.",
         "newidea_prompt": "Écris ton idée dans ce fil.",
+        "use_rechallenge": "Utilise /rechallenge dans le fil d'une idée.",
+        "use_lang": "Utilise /lang fr ou /lang en dans le fil d'une idée.",
+        "lang_usage": "Usage : /lang fr ou /lang en.",
+        "lang_set": "Langue de la fiche : français. Les textes déjà écrits ne sont pas traduits. Fiche : {url}",
         "no_threads": "Je n'ai pas pu créer de fil : active le Threaded mode du bot dans BotFather.",
     },
     "en": {
@@ -29,6 +33,10 @@ MSG = {
         "ready": "Sheet ready: {url}",
         "use_ready": "Use /prete inside an idea's thread.",
         "newidea_prompt": "Write your idea in this thread.",
+        "use_rechallenge": "Use /rechallenge inside an idea's thread.",
+        "use_lang": "Use /lang fr or /lang en inside an idea's thread.",
+        "lang_usage": "Usage: /lang fr or /lang en.",
+        "lang_set": "Sheet language: English. Text already written is not translated. Sheet: {url}",
         "no_threads": "I could not create a thread: enable the bot's Threaded mode in BotFather.",
     },
 }
@@ -95,6 +103,10 @@ class Service:
             return await self._on_ready(thread_id)
         if command == "/newidea":
             return await self._on_newidea(rest.strip())
+        if command == "/rechallenge":
+            return await self._on_rechallenge(thread_id)
+        if command == "/lang":
+            return await self._on_lang(thread_id, rest.strip().lower())
         if text.startswith("/"):
             return
         if thread_id is None:
@@ -130,18 +142,21 @@ class Service:
 
     async def _challenge(self, fiche_id):
         fiche = await self._fiche(fiche_id)
+        again = fiche.challenge == CHALLENGE_DONE  # /rechallenge : nouvelles objections, dans la langue de la fiche
         try:
-            fiche.lang, fiche.objections = await asyncio.to_thread(self.brain.challenge, fiche)
+            lang, found = await asyncio.to_thread(self.brain.challenge, fiche, fiche.lang if again else None)
         except BrainUnavailable as err:
-            fiche.challenge = CHALLENGE_FAILED
-            await self._save(fiche)
-            await self.messenger.send(fiche.thread_id, say("postponed", why=err, url=self._url(fiche)))
+            if not again:  # un nouvel essai rate ne doit pas defaire un challenge reussi
+                fiche.challenge = CHALLENGE_FAILED
+                await self._save(fiche)
+            await self.messenger.send(fiche.thread_id, say("postponed", fiche.lang if again else None, why=err, url=self._url(fiche)))
             return
+        if not again:
+            fiche.lang = lang
+        fiche.objections = fiche.objections + found
         fiche.challenge = CHALLENGE_DONE
         await self._save(fiche)
-        lines = []
-        for o in fiche.objections:
-            lines.append(f"{o.id}. {o.texte}\n   " + "\n   ".join(o.sources))
+        lines = [f"{o.id}. {o.texte}\n   " + "\n   ".join(o.sources) for o in found]
         await self.messenger.send(fiche.thread_id, say("objections", fiche.lang) + "\n\n" + "\n\n".join(lines) + f"\n\n{self._url(fiche)}")
 
     async def _reply(self, fiche_id, text):
@@ -157,6 +172,27 @@ class Service:
             return
         await self._save(fiche)
         await self.messenger.send(fiche.thread_id, say("updated", fiche.lang, url=self._url(fiche)))
+
+    async def _on_rechallenge(self, thread_id):
+        fiche = None if thread_id is None else await asyncio.to_thread(self.store.find_by_thread, thread_id)
+        if fiche is None:
+            return await self.messenger.send(thread_id, say("use_rechallenge"))
+        self._queue.put_nowait(lambda: self._challenge(fiche.id))
+
+    async def _on_lang(self, thread_id, lang):
+        fiche = None if thread_id is None else await asyncio.to_thread(self.store.find_by_thread, thread_id)
+        if fiche is None:
+            return await self.messenger.send(thread_id, say("use_lang"))
+        if lang not in MSG:
+            return await self.messenger.send(thread_id, say("lang_usage", fiche.lang))
+
+        async def switch():
+            current = await self._fiche(fiche.id)
+            current.lang = lang
+            await self._save(current)
+            await self.messenger.send(current.thread_id, say("lang_set", lang, url=self._url(current)))
+
+        self._queue.put_nowait(switch)
 
     async def _on_ready(self, thread_id):
         fiche = None if thread_id is None else await asyncio.to_thread(self.store.find_by_thread, thread_id)

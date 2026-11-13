@@ -184,3 +184,28 @@ def test_integration_is_asked_to_write_in_the_fiche_language(tmp_path):
     fiche.lang = "en"
     b.integrate(fiche, "ok", [])
     assert "Write in English" in seen.read_text()
+
+
+
+def capture_prompt(tmp_path, answer):
+    seen = tmp_path / "prompt.txt"
+    script = tmp_path / "claude"
+    script.write_text(f"#!{sys.executable}\nimport sys, json\nopen({str(seen)!r}, 'w').write(sys.stdin.read())\n" + reply(answer))
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return Brain(claude_bin=str(script), model="sonnet", token="t", api_key=None, timeout=20), seen
+
+
+def test_the_challenge_prompt_carries_the_france_lens(tmp_path):
+    b, seen = capture_prompt(tmp_path, {"objections": [{"texte": "t", "sources": ["https://x.example"]}]})
+    b.challenge(Fiche.new("une assurance pour agents"))
+    text = seen.read_text()
+    assert "lives in France" in text and "NOT an objection by itself" in text and "French or European opening" in text
+
+
+def test_a_second_challenge_numbers_on_and_does_not_repeat_and_can_force_the_language(tmp_path):
+    b, seen = capture_prompt(tmp_path, {"langue": "en", "objections": [{"texte": "nouvelle", "sources": ["https://x.example"]}]})
+    lang, found = b.challenge(fiche_with_objections(), force_lang="fr")
+    text = seen.read_text()
+    assert [o.id for o in found] == ["O3"] and lang == "fr"
+    assert "Marché saturé ?" in text and "Prix ?" in text  # objections deja posees
+    assert "Write every objection in French." in text and "Choose the output language" not in text

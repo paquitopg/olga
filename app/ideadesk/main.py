@@ -69,6 +69,8 @@ async def serve(settings):
             await bot.set_my_commands([
                 BotCommand(command="newidea", description="New idea / Nouvelle idée"),
                 BotCommand(command="prete", description="Mark this sheet ready / Fiche prête"),
+                BotCommand(command="rechallenge", description="New objections for this sheet / Nouvelles objections"),
+                BotCommand(command="lang", description="Sheet language: /lang fr or /lang en / Langue de la fiche"),
             ])
         except Exception:
             log.exception("menu des commandes non enregistré")

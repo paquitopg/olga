@@ -32,12 +32,14 @@ class FakeBrain:
         self.fail_challenge = False
         self.integrate_raises = None
         self.lang = "fr"
+        self.forced = None
         self.challenge_calls = 0
         self.gate = None  # threading.Event : bloque le challenge tant qu'il n'est pas leve
         self.started = threading.Event()
 
-    def challenge(self, fiche):
+    def challenge(self, fiche, force_lang=None):
         self.events.append("challenge")
+        self.forced = force_lang
         self.challenge_calls += 1
         if self.store is not None:
             assert self.store.get(fiche.id) is not None  # le brouillon existe deja
@@ -46,7 +48,8 @@ class FakeBrain:
             self.gate.wait(5)
         if self.fail_challenge:
             raise BrainUnavailable("recherche indisponible")
-        return self.lang, [Objection("O1", "Marché saturé ?", ["https://a.example"])]
+        n = len(fiche.objections) + 1
+        return force_lang or self.lang, [Objection(f"O{n}", f"Objection {n} ?" if n > 1 else "Marché saturé ?", ["https://a.example"])]
 
     def integrate(self, fiche, answer, themes):
         self.events.append("integrate")
@@ -400,3 +403,92 @@ def test_newidea_without_topics_tells_the_owner_how_to_enable_them(store):
 
     run(go())
     assert store.list() == [] and "Threaded mode" in messenger.sent[0][1]
+
+
+def test_rechallenge_adds_new_objections_keeps_old_ones_and_their_answers(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+        await service.on_message(OWNER, "ma réponse", 101)
+        await service.drain()
+        messenger.sent.clear()
+        brain.lang = "en"  # le cerveau change d'avis : la langue de la fiche ne doit pas bouger
+        await service.on_message(OWNER, "/rechallenge", 101)
+        await service.drain()
+
+    run(go())
+    fiche = store.find_by_thread(101)
+    assert [o.id for o in fiche.objections] == ["O1", "O2"]
+    assert fiche.objections[0].reponse == "ma réponse" and fiche.objections[1].reponse == ""
+    assert fiche.lang == "fr" and brain.forced == "fr" and fiche.challenge == "fait"
+    assert "O2. Objection 2" in messenger.sent[0][1] and "O1." not in messenger.sent[0][1]
+
+
+def test_a_failed_rechallenge_does_not_undo_a_successful_challenge(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+        brain.fail_challenge = True
+        messenger.sent.clear()
+        await service.on_message(OWNER, "/rechallenge", 101)
+        await service.drain()
+
+    run(go())
+    fiche = store.find_by_thread(101)
+    assert fiche.challenge == "fait" and len(fiche.objections) == 1
+    assert "report" in messenger.sent[0][1].lower()
+
+
+def test_rechallenge_outside_an_idea_thread_is_refused_politely(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "/rechallenge", None)
+        await service.drain()
+
+    run(go())
+    assert store.list() == [] and "/rechallenge" in messenger.sent[0][1] and brain.challenge_calls == 0
+
+
+def test_lang_switches_the_fiche_language_and_later_messages_follow(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+        messenger.sent.clear()
+        await service.on_message(OWNER, "/lang en", 101)
+        await service.drain()
+        await service.on_message(OWNER, "/prete", 101)
+        await service.drain()
+
+    run(go())
+    assert store.find_by_thread(101).lang == "en"
+    assert messenger.sent[0][1].startswith("Sheet language: English")
+    assert messenger.sent[1][1].startswith("Sheet ready:")
+
+
+def test_lang_with_a_wrong_argument_or_outside_a_thread_explains_usage(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+        messenger.sent.clear()
+        await service.on_message(OWNER, "/lang de", 101)
+        await service.on_message(OWNER, "/lang", 101)
+        await service.on_message(OWNER, "/lang fr", None)
+        await service.drain()
+
+    run(go())
+    assert store.find_by_thread(101).lang == "fr"
+    assert [("Usage" in m) or ("/lang" in m) for _, m in messenger.sent] == [True, True, True]

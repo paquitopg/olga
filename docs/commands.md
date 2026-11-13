@@ -14,6 +14,8 @@ Seul le propriétaire est servi. Une commande inconnue est ignorée sans répons
 | `/newidea` | n'importe où | Crée un fil nommé « New idea » et y invite à écrire l'idée. Le message suivant dans ce fil devient l'idée. Sans le Threaded mode du bot, répond comment l'activer. |
 | `/newidea <texte>` | n'importe où | Crée directement la fiche avec ce texte, dans son propre fil, comme une idée écrite hors de tout fil. |
 | `/prete` | dans le fil d'une idée | Passe la fiche au statut « prête » et renvoie son lien. Hors du fil d'une idée, explique où l'utiliser. |
+| `/rechallenge` | dans le fil d'une idée | Demande de nouvelles objections sourcées, sans répéter les précédentes. Elles s'ajoutent (numérotation qui continue) : les anciennes objections et vos réponses restent. La langue de la fiche ne change pas. Si ce nouvel essai échoue, le challenge déjà réussi n'est pas défait. |
+| `/lang fr` ou `/lang en` | dans le fil d'une idée | Force la langue de la fiche : titres de sections, messages du bot, page du site et textes générés ensuite. Les textes déjà écrits ne sont pas traduits. |
 
 `/newidea@nom_du_bot` est reconnu comme `/newidea`.
 
@@ -24,6 +26,13 @@ Seul le propriétaire est servi. Une commande inconnue est ignorée sans répons
 | Hors de tout fil | Nouvelle idée : le bot crée un fil, enregistre le brouillon, accuse réception avec le lien, puis envoie les objections. |
 | Dans un fil sans fiche (par exemple celui que le propriétaire vient de créer, ou celui ouvert par `/newidea`) | Nouvelle idée rattachée à ce fil, sans créer d'autre fil. |
 | Dans le fil d'une fiche | Réponse : elle est intégrée à la fiche, qui est mise à jour. Si le challenge avait échoué, il est relancé d'abord. |
+
+## Regard « France » du challenge
+
+Le propriétaire vit en France. Le challenge ne traite jamais un concurrent étranger (américain par
+exemple) comme un obstacle en soi : il évalue l'ouverture du marché français et européen (langue,
+réglementation, canaux de distribution, clients, acteurs français) et dit ce que les concurrents
+étrangers laissent ouvert en France. Une objection au moins porte sur cette ouverture.
 
 ## Langue
 
@@ -37,8 +46,6 @@ Pistes issues de la conversation, **non décidées**. Chacune garde sa question 
 
 | Piste | À trancher |
 |---|---|
-| `/lang fr` ou `/lang en` | Forcer la langue d'une fiche quand le choix automatique ne convient pas. Dans le fil d'une fiche seulement ? Réécrit-elle les sections déjà écrites ? |
-| `/rechallenge` | Relancer à la main le challenge d'une fiche. Aujourd'hui, une réponse sur un challenge raté le relance seulement. |
 | `/brouillons` | Lister les brouillons sans réponse, avec leur lien. Lien avec le digest hebdomadaire reporté. |
 | `/chercher <question>` | Recherche conversationnelle dans la bibliothèque, reportée avec ce plan. Renvoie-t-elle les fiches sources ? |
 | `/lier` | Rapprocher la fiche d'autres fiches existantes (reporté). Automatique à la création ou sur demande ? |
