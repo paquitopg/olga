@@ -34,6 +34,8 @@ class Settings:
     claude_model: str
     claude_bin: str
     library_dir: Path
+    explore_max_five_hour: float  # part de la fenetre de 5 h au-dela de laquelle /explore s'arrete (1.0 = epuisee)
+    explore_max_seven_day: float
 
 
 def load(secrets_dir=None):
@@ -63,4 +65,6 @@ def load(secrets_dir=None):
         claude_model=_read("CLAUDE_MODEL", secrets_dir) or "sonnet",
         claude_bin=_read("CLAUDE_BIN", secrets_dir) or "claude",
         library_dir=Path(_read("LIBRARY_DIR", secrets_dir) or "/data/library"),
+        explore_max_five_hour=float(_read("EXPLORE_MAX_FIVE_HOUR", secrets_dir) or 1.0),
+        explore_max_seven_day=float(_read("EXPLORE_MAX_SEVEN_DAY", secrets_dir) or 0.85),
     )

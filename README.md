@@ -16,6 +16,7 @@ La langue d'une fiche (français ou anglais) est choisie selon le sujet : franç
 - `/prete` dans le fil marque la fiche « prête ».
 - `/newidea` ouvre un fil pour une nouvelle idée (`/newidea mon idée` la crée directement).
 - `/rechallenge` demande de nouvelles objections ; `/lang fr|en` force la langue de la fiche.
+- `/explore [N]` dépense le quota Claude restant en créant `N` idées voisines de vos fiches, benchmarkées.
   Toutes les commandes, celles en place et celles à concevoir : `docs/commands.md`.
 - Si le challenge a échoué, répondre dans le fil le relance.
 
