@@ -2,6 +2,7 @@
 import dataclasses
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -11,6 +12,7 @@ from .fiche import Objection
 
 PROMPTS = Path(__file__).parent / "prompts"
 WEB_TOOLS = "WebSearch,WebFetch"
+URL = re.compile(r"https?://\S+")  # une seule ligne : une source ne peut pas ajouter de sections a la fiche
 
 
 class BrainUnavailable(Exception):
@@ -67,7 +69,7 @@ class Brain:
         for item in data.get("objections") or []:
             if not isinstance(item, dict):
                 continue
-            sources = [u for u in item.get("sources") or [] if isinstance(u, str) and u.startswith(("http://", "https://"))]
+            sources = [u for u in item.get("sources") or [] if isinstance(u, str) and URL.fullmatch(u)]
             texte = str(item.get("texte", "")).strip()
             if texte and sources:
                 found.append(Objection(f"O{len(found) + 1}", texte, sources))
@@ -87,10 +89,15 @@ class Brain:
         needed = ("probleme", "cible", "idee", "reponses", "questions_ouvertes", "themes")
         if any(k not in data for k in needed):
             raise BrainUnavailable("réponse incomplète")
-        answers = {r.get("objection_id"): str(r.get("reponse", "")) for r in data["reponses"] if isinstance(r, dict)}
-        objections = [dataclasses.replace(o, reponse=answers.get(o.id, o.reponse)) for o in fiche.objections]
+        try:
+            answers = {r.get("objection_id"): str(r.get("reponse", "")) for r in data["reponses"] if isinstance(r, dict)}
+            questions = [str(q) for q in data["questions_ouvertes"]]
+            themes = [str(t).strip() for t in data["themes"] if str(t).strip()][:3]
+        except TypeError:  # une liste attendue valait null
+            raise BrainUnavailable("réponse incomplète")
+        # Une réponse vide ne doit pas effacer la réponse précédente.
+        objections = [dataclasses.replace(o, reponse=answers.get(o.id) or o.reponse) for o in fiche.objections]
         return dataclasses.replace(
             fiche, problem=str(data["probleme"]), target=str(data["cible"]), idea=str(data["idee"]),
-            objections=objections, open_questions=[str(q) for q in data["questions_ouvertes"]],
-            themes=[str(t).strip() for t in data["themes"] if str(t).strip()][:3],
+            objections=objections, open_questions=questions, themes=themes,
         )

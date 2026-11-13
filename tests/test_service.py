@@ -27,6 +27,7 @@ class FakeBrain:
     def __init__(self, events, store=None):
         self.events, self.store = events, store
         self.fail_challenge = False
+        self.integrate_raises = None
         self.challenge_calls = 0
         self.gate = None  # threading.Event : bloque le challenge tant qu'il n'est pas leve
         self.started = threading.Event()
@@ -45,6 +46,8 @@ class FakeBrain:
 
     def integrate(self, fiche, answer, themes):
         self.events.append("integrate")
+        if self.integrate_raises:
+            raise self.integrate_raises
         import dataclasses
         objs = [dataclasses.replace(o, reponse=answer) for o in fiche.objections]
         return dataclasses.replace(fiche, problem=f"P:{answer}", objections=objs)
@@ -234,3 +237,72 @@ def test_reply_in_an_unknown_thread_is_refused_without_creating_a_fiche(store):
 
     run(go())
     assert store.list() == [] and len(messenger.sent) == 1
+
+
+def test_restart_resumes_a_challenge_left_in_progress(store):
+    pending = store.create("idée interrompue", thread_id=101)
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.drain()
+
+    run(go())
+    assert store.get(pending.id).challenge == "fait" and store.get(pending.id).objections
+
+
+def test_a_failed_acknowledgement_does_not_stop_the_challenge(store):
+    service, messenger, brain, _ = make(store)
+    original = messenger.send
+    calls = []
+
+    async def flaky(thread_id, text):
+        calls.append(text)
+        if len(calls) == 1:
+            raise RuntimeError("telegram down")
+        await original(thread_id, text)
+
+    messenger.send = flaky
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+
+    run(go())
+    assert store.list()[0].challenge == "fait"
+
+
+def test_integration_failure_tells_the_owner_and_keeps_the_fiche(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+        brain.integrate_raises = BrainUnavailable("sortie illisible")
+        messenger.sent.clear()
+        await service.on_message(OWNER, "réponse", 101)
+        await service.drain()
+
+    run(go())
+    assert "pas pu intégrer" in messenger.sent[0][1]
+    assert store.find_by_thread(101).problem == ""
+
+
+def test_an_unexpected_error_in_a_job_does_not_stop_the_next_job(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+        brain.integrate_raises = ValueError("boom")
+        await service.on_message(OWNER, "première réponse", 101)
+        await service.drain()
+        brain.integrate_raises = None
+        await service.on_message(OWNER, "seconde réponse", 101)
+        await service.drain()
+
+    run(go())
+    assert store.find_by_thread(101).problem == "P:seconde réponse"

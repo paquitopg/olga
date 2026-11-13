@@ -72,3 +72,43 @@ def test_site_answers_while_polling_runs_and_shutdown_stops_polling_and_finishes
     finally:
         loop.close()
     assert events["stopped"] and events["write_done"]
+
+
+def test_sigterm_stops_polling_and_drains_before_the_process_exits(tmp_path):
+    import signal
+    import textwrap
+
+    port = free_port()
+    script = textwrap.dedent(f"""
+        import asyncio
+        import uvicorn
+        from fastapi import FastAPI
+        from ideadesk.main import Server, run_all
+
+        class Service:
+            async def drain(self):
+                print("drained", flush=True)
+
+        async def main():
+            server = Server(uvicorn.Config(FastAPI(), host="127.0.0.1", port={port}, log_level="warning"))
+            stop = asyncio.Event()
+            async def start_poll():
+                await stop.wait()
+            async def stop_poll():
+                print("stopped", flush=True)
+                stop.set()
+            await run_all(server, Service(), start_poll, stop_poll)
+
+        asyncio.run(main())
+    """)
+    proc = subprocess.Popen([sys.executable, "-c", script], env={"PATH": os.environ["PATH"], "PYTHONPATH": "app"},
+                            stdout=subprocess.PIPE, text=True)
+    for _ in range(100):  # attend que le site ecoute
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+            break
+        except OSError:
+            time.sleep(0.1)
+    proc.send_signal(signal.SIGTERM)
+    out, _ = proc.communicate(timeout=20)
+    assert "stopped" in out and "drained" in out and proc.returncode == 0

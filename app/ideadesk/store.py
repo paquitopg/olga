@@ -4,12 +4,14 @@ import os
 import stat
 import subprocess
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .fiche import Fiche, parse, render
 
 log = logging.getLogger("ideadesk.store")
+GIT_TIMEOUT = 120
 
 
 class GitError(RuntimeError):
@@ -30,6 +32,7 @@ class Store:
         self.dir = Path(directory)
         self.repo_url = repo_url
         self.token = token
+        self._lock = threading.Lock()  # create() et la file d'attente ecrivent depuis des threads differents
         # Le jeton passe a git par GIT_ASKPASS, jamais dans l'URL du depot.
         askpass_dir = Path(tempfile.mkdtemp(prefix="askpass-"))
         self._askpass = askpass_dir / "askpass.sh"
@@ -41,35 +44,47 @@ class Store:
 
     def _git(self, *args, cwd=None):
         env = {**os.environ, "GIT_ASKPASS": str(self._askpass), "GIT_TOKEN": self.token, "GIT_TERMINAL_PROMPT": "0"}
-        done = subprocess.run(["git", *args], cwd=cwd or self.dir, env=env, capture_output=True, text=True)
+        try:
+            done = subprocess.run(["git", *args], cwd=cwd or self.dir, env=env, capture_output=True, text=True, timeout=GIT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise GitError(f"git {args[0]} : délai dépassé")
         if done.returncode != 0:
             raise GitError(self._redact((done.stderr or done.stdout).strip()))
         return done.stdout
 
     def ensure_clone(self):
-        if (self.dir / ".git").exists():
-            return
-        self.dir.parent.mkdir(parents=True, exist_ok=True)
-        self._git("clone", self.repo_url, str(self.dir), cwd=self.dir.parent)
-        self._git("config", "user.name", "idea-desk")
-        self._git("config", "user.email", "idea-desk@localhost")
-        (self.dir / "fiches").mkdir(exist_ok=True)
+        with self._lock:
+            if (self.dir / ".git").exists():
+                return
+            self.dir.parent.mkdir(parents=True, exist_ok=True)
+            self._git("clone", self.repo_url, str(self.dir), cwd=self.dir.parent)
+            self._git("config", "user.name", "idea-desk")
+            self._git("config", "user.email", "idea-desk@localhost")
+            (self.dir / "fiches").mkdir(exist_ok=True)
 
     def _path(self, fiche_id):
         return self.dir / "fiches" / f"{fiche_id}.md"
 
+    @staticmethod
+    def _load(path):
+        try:
+            return parse(path.read_text())
+        except Exception:  # une fiche illisible ne doit pas casser le site ni les fils Telegram
+            log.warning("fiche illisible ignorée : %s", path.name)
+            return None
+
     def get(self, fiche_id):
         path = self._path(fiche_id)
-        return parse(path.read_text()) if path.is_file() else None
+        return self._load(path) if path.is_file() else None
 
     def list(self):
-        fiches = [parse(p.read_text()) for p in (self.dir / "fiches").glob("*.md")]
+        fiches = [f for f in map(self._load, (self.dir / "fiches").glob("*.md")) if f]
         return sorted(fiches, key=lambda f: f.updated, reverse=True)
 
     def find_by_thread(self, thread_id):
         for path in (self.dir / "fiches").glob("*.md"):
-            fiche = parse(path.read_text())
-            if fiche.thread_id == thread_id:
+            fiche = self._load(path)
+            if fiche and fiche.thread_id == thread_id:
                 return fiche
         return None
 
@@ -82,20 +97,21 @@ class Store:
         return fiche
 
     def save(self, fiche):
-        fiche.updated = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        try:  # shortcut: un seul ecrivain, un echec de tirage (depot vide) ne bloque pas ; a revoir avec un second ecrivain.
-            self._git("pull", "--rebase", "--autostash")
-        except GitError as err:
-            log.debug("git pull ignore : %s", err)
-        path = self._path(fiche.id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(render(fiche))
-        os.replace(tmp, path)
-        rel = str(path.relative_to(self.dir))
-        self._git("add", rel)
-        self._git("commit", "-m", f"fiche: {fiche.title[:60]}", "--", rel)
-        try:
-            self._git("push", "origin", "HEAD")
-        except GitError as err:
-            log.warning("git push a echoue, retente a la prochaine ecriture : %s", err)
+        with self._lock:
+            fiche.updated = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            try:  # shortcut: un seul ecrivain, un echec de tirage (depot vide) ne bloque pas ; a revoir avec un second ecrivain.
+                self._git("pull", "--rebase", "--autostash")
+            except GitError as err:
+                log.debug("git pull ignore : %s", err)
+            path = self._path(fiche.id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(render(fiche))
+            os.replace(tmp, path)
+            rel = str(path.relative_to(self.dir))
+            self._git("add", rel)
+            self._git("commit", "-m", f"fiche: {fiche.title[:60]}", "--", rel)
+            try:
+                self._git("push", "origin", "HEAD")
+            except GitError as err:
+                log.warning("git push a echoue, retente a la prochaine ecriture : %s", err)

@@ -3,7 +3,7 @@ import asyncio
 import logging
 
 from .brain import BrainUnavailable
-from .fiche import CHALLENGE_DONE, CHALLENGE_FAILED, READY, title_of
+from .fiche import CHALLENGE_DONE, CHALLENGE_FAILED, CHALLENGE_PENDING, READY, title_of
 
 log = logging.getLogger("ideadesk.service")
 
@@ -18,7 +18,14 @@ class Service:
     def start(self):
         # Une seule file : tous les appels au cerveau passent l'un apres l'autre.
         self._queue = asyncio.Queue()
+        self._queue.put_nowait(self._resume)
         self._worker_task = asyncio.create_task(self._worker())
+
+    async def _resume(self):
+        # Un redemarrage a pu interrompre un challenge : les fiches restees en cours le reprennent.
+        for fiche in await asyncio.to_thread(self.store.list):
+            if fiche.challenge == CHALLENGE_PENDING:
+                await self._challenge(fiche.id)
 
     async def drain(self):
         await self._queue.join()
@@ -67,7 +74,10 @@ class Service:
             log.exception("creation du fil impossible, idée gardée sans fil")
             thread_id = None
         fiche = await asyncio.to_thread(self.store.create, text, thread_id)
-        await self.messenger.send(thread_id, f"Idée enregistrée en brouillon. Fiche : {self._url(fiche)}")
+        try:
+            await self.messenger.send(thread_id, f"Idée enregistrée en brouillon. Fiche : {self._url(fiche)}")
+        except Exception:
+            log.exception("accusé non envoyé, le challenge part quand même")
         self._queue.put_nowait(lambda: self._challenge(fiche.id))
 
     async def _challenge(self, fiche_id):

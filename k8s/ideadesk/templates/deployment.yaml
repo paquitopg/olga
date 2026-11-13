@@ -15,6 +15,7 @@ spec:
       labels:
         app: {{ .Release.Name }}
     spec:
+      terminationGracePeriodSeconds: 60  # laisse le temps de vider la file avant l'arret
       securityContext:
         runAsUser: {{ .Values.uid }}
         runAsNonRoot: true

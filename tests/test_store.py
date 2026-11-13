@@ -74,3 +74,42 @@ def test_find_by_thread_returns_the_matching_fiche_or_none(store):
     store.create("b", thread_id=12)
     assert store.find_by_thread(11).id == a.id
     assert store.find_by_thread(99) is None
+
+
+def test_concurrent_creates_do_not_collide_on_the_git_index(store):
+    import threading
+
+    errors = []
+
+    def create(i):
+        try:
+            store.create(f"idée {i}")
+        except Exception as err:  # noqa: BLE001
+            errors.append(err)
+
+    threads = [threading.Thread(target=create, args=(i,)) for i in range(8)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert not errors and len(store.list()) == 8
+
+
+def test_an_unreadable_fiche_is_skipped_instead_of_breaking_everything(store):
+    good = store.create("ok", thread_id=7)
+    (store.dir / "fiches" / "cassee.md").write_text("pas une fiche")
+    assert [f.id for f in store.list()] == [good.id]
+    assert store.find_by_thread(7).id == good.id
+    assert store.get("cassee") is None
+
+
+def test_a_git_timeout_keeps_the_local_write_and_is_logged(store, monkeypatch, caplog):
+    real = subprocess.run
+
+    def fake(args, *a, **kw):
+        if "push" in args:
+            raise subprocess.TimeoutExpired(args, 1)
+        return real(args, *a, **kw)
+
+    monkeypatch.setattr(store_mod.subprocess, "run", fake)
+    with caplog.at_level(logging.WARNING):
+        fiche = store.create("x")
+    assert store.get(fiche.id) is not None and "délai dépassé" in caplog.text

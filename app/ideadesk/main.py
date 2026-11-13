@@ -1,6 +1,8 @@
 """Demarre le bot Telegram et le site dans un meme processus."""
 import asyncio
+import contextlib
 import logging
+import signal
 import sys
 
 import uvicorn
@@ -14,6 +16,21 @@ from .store import Store
 from .web import create_app
 
 log = logging.getLogger("ideadesk")
+
+
+class Server(uvicorn.Server):
+    """uvicorn renvoie le signal recu apres son arret propre, ce qui tuerait le processus avant notre nettoyage."""
+
+    @contextlib.contextmanager
+    def capture_signals(self):
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, setattr, self, "should_exit", True)
+        try:
+            yield
+        finally:
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.remove_signal_handler(sig)
 
 
 async def run_all(server, service, start_poll, stop_poll, drain_timeout=30):
@@ -43,7 +60,7 @@ async def serve(settings):
     service.start()
     dp = build_dispatcher(service)
     app = create_app(store, settings.site_password_hash, settings.session_secret)
-    server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info"))
+    server = Server(uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info"))
 
     async def start_poll():
         await bot.delete_webhook()  # interrogation continue et webhook s'excluent

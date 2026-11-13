@@ -43,13 +43,22 @@ def create_app(store, password_hash, session_secret):
     templates = Jinja2Templates(directory=str(TEMPLATES))
     markdown = MarkdownIt("commonmark", {"html": False})  # HTML brut desactive : le contenu vient en partie du web
     templates.env.filters["md"] = lambda text: markdown.render(text or "")
-    failures = deque()  # shortcut: compteur en memoire, un seul utilisateur ; a revoir si le site en servait plusieurs.
+    failures = {}  # client -> horodatages des echecs ; en memoire (un seul utilisateur), borne a 1000 clients.
+
+    def client_key(request):
+        # Derriere l'Ingress, l'adresse du client est le premier saut de X-Forwarded-For.
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        return forwarded or (request.client.host if request.client else "?")
 
     @app.middleware("http")
     async def headers(request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Robots-Tag"] = "noindex, nofollow"
         response.headers["Cache-Control"] = "no-store"
+        # Pas de ressource distante : une image injectee dans une fiche ne peut pas faire fuiter du texte.
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; "
+            "frame-ancestors 'none'; base-uri 'none'")
         return response
 
     def need_login(request: Request):
@@ -70,15 +79,18 @@ def create_app(store, password_hash, session_secret):
 
     @app.post("/login")
     def login(request: Request, password: str = Form("")):
-        now = time.time()
-        while failures and now - failures[0] > WINDOW:
-            failures.popleft()
-        if len(failures) >= MAX_FAILURES:
+        now, key = time.time(), client_key(request)
+        if len(failures) > 1000:
+            failures.clear()
+        bucket = failures.setdefault(key, deque())
+        while bucket and now - bucket[0] > WINDOW:
+            bucket.popleft()
+        if len(bucket) >= MAX_FAILURES:
             return templates.TemplateResponse(request, "login.html", {"error": True}, status_code=429)
         if not _check(password, password_hash):
-            failures.append(now)
+            bucket.append(now)
             return templates.TemplateResponse(request, "login.html", {"error": True}, status_code=401)
-        failures.clear()
+        failures.pop(key, None)
         request.session["ok"] = True
         return RedirectResponse("/", status_code=303)
 

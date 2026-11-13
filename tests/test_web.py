@@ -82,3 +82,21 @@ def test_healthz_is_open_and_reveals_nothing_and_pages_are_not_indexable(client,
     assert res.status_code == 200 and "Titre" not in res.text
     assert "noindex" in client.get("/login").headers["x-robots-tag"]
     assert "Disallow: /" in client.get("/robots.txt").text
+
+
+def test_failed_logins_from_one_client_do_not_lock_out_another(client):
+    for _ in range(5):
+        client.post("/login", data={"password": "mauvais"}, headers={"X-Forwarded-For": "203.0.113.5"})
+    assert client.post("/login", data={"password": PASSWORD}, headers={"X-Forwarded-For": "203.0.113.5"}).status_code == 429
+    assert client.post("/login", data={"password": PASSWORD}, headers={"X-Forwarded-For": "198.51.100.7"}).status_code == 303
+
+
+def test_unknown_or_odd_fiche_ids_are_404_when_logged_in(client, fiches):
+    login(client)
+    for fiche_id in ("inconnue", "a.b", "..%2F..%2Fetc%2Fpasswd"):
+        assert client.get(f"/fiche/{fiche_id}").status_code == 404
+
+
+def test_pages_forbid_remote_resources(client):
+    csp = client.get("/login").headers["content-security-policy"]
+    assert "img-src 'self'" in csp and "default-src 'none'" in csp
