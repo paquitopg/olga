@@ -1,0 +1,19 @@
+image:
+  repository: ghcr.io/paquitopg/second-brain
+  tag: latest
+  pullPolicy: Always
+
+# Adresse du site : <app>-<utilisateur>.user.lab.sspcloud.fr (classe d'Ingress onyxia, certificat wildcard de la plateforme)
+hostname: ideas-pgoze.user.lab.sspcloud.fr
+
+# Depot prive des fiches (sans identifiants : le jeton vient du Secret)
+libraryRepoUrl: https://github.com/paquitopg/idea-library.git
+
+# Secret cree a la main (voir README) ; ses cles sont montees en fichiers sous /secrets/app
+secretName: ideadesk-app
+
+# Identifiant fixe de l'image ; le volume lui est ouvert par fsGroup
+uid: 10001
+
+storage:
+  size: 1Gi

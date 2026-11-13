@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Bibliothèque d'idées</h1>
+<p class="chips">
+  <a href="/" class="{{ 'on' if not statut and not theme }}">Tout</a>
+  <a href="/?statut=brouillon" class="{{ 'on' if statut == 'brouillon' }}">Brouillons</a>
+  <a href="/?statut=prete" class="{{ 'on' if statut == 'prete' }}">Prêtes</a>
+</p>
+{% if themes %}<p class="chips">{% for t in themes %}<a href="/?theme={{ t|urlencode }}" class="{{ 'on' if theme and theme.lower() == t.lower() }}">{{ t }}</a>{% endfor %}</p>{% endif %}
+<ul class="list">
+{% for f in fiches %}
+  <li><a href="/fiche/{{ f.id }}">{{ f.title }}</a><br><span class="tag">{{ f.status }} · {{ f.themes|join(", ") }}</span></li>
+{% else %}
+  <li>Aucune fiche.</li>
+{% endfor %}
+</ul>
+<form method="post" action="/logout"><button type="submit">Se déconnecter</button></form>
+{% endblock %}
