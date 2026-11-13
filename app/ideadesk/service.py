@@ -16,7 +16,6 @@ MSG = {
         "no_integrate": "Je n'ai pas pu intégrer ta réponse ({why}). Renvoie-la plus tard.",
         "updated": "Fiche mise à jour : {url}",
         "ready": "Fiche prête : {url}",
-        "not_found": "Je ne retrouve pas cette idée.",
         "use_ready": "Utilise /prete dans le fil d'une idée.",
     },
     "en": {
@@ -26,7 +25,6 @@ MSG = {
         "no_integrate": "I could not fold in your answer ({why}). Please send it again later.",
         "updated": "Sheet updated: {url}",
         "ready": "Sheet ready: {url}",
-        "not_found": "I can't find that idea.",
         "use_ready": "Use /prete inside an idea's thread.",
     },
 }
@@ -95,15 +93,16 @@ class Service:
             return await self._on_new_idea(text)
         fiche = await asyncio.to_thread(self.store.find_by_thread, thread_id)
         if fiche is None:
-            return await self.messenger.send(thread_id, say("not_found"))
+            # Avec les sujets actives, chaque message arrive dans un fil : un fil sans fiche ouvre une nouvelle idee.
+            return await self._on_new_idea(text, thread_id)
         self._queue.put_nowait(lambda: self._reply(fiche.id, text))
 
-    async def _on_new_idea(self, text):
-        try:
-            thread_id = await self.messenger.new_thread(title_of(text))
-        except Exception:
-            log.exception("creation du fil impossible, idée gardée sans fil")
-            thread_id = None
+    async def _on_new_idea(self, text, thread_id=None):
+        if thread_id is None:
+            try:
+                thread_id = await self.messenger.new_thread(title_of(text))
+            except Exception:
+                log.exception("creation du fil impossible, idée gardée sans fil")
         fiche = await asyncio.to_thread(self.store.create, text, thread_id)
         try:
             await self.messenger.send(thread_id, say("saved", url=self._url(fiche)))

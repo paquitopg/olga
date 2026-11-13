@@ -228,16 +228,20 @@ def test_reply_during_a_running_challenge_waits_and_starts_no_second_challenge(s
     assert fiche.objections[0].texte == "Marché saturé ?" and fiche.objections[0].reponse == "réponse pressée"
 
 
-def test_reply_in_an_unknown_thread_is_refused_without_creating_a_fiche(store):
+def test_a_message_in_a_thread_without_a_fiche_opens_a_new_idea_in_that_thread(store):
     service, messenger, brain, _ = make(store)
 
     async def go():
         service.start()
-        await service.on_message(OWNER, "bonjour", 555)
+        await service.on_message(OWNER, "idée dans un fil créé par moi", 555)
         await service.drain()
 
     run(go())
-    assert store.list() == [] and len(messenger.sent) == 1
+    [fiche] = store.list()
+    assert fiche.thread_id == 555 and fiche.raw_idea == "idée dans un fil créé par moi"
+    assert messenger.next_thread == 100  # aucun nouveau fil créé : on réutilise celui de l'utilisateur
+    assert all(thread == 555 for thread, _ in messenger.sent)
+
 
 
 def test_restart_resumes_a_challenge_left_in_progress(store):
