@@ -14,6 +14,8 @@ La langue d'une fiche (français ou anglais) est choisie selon le sujet : franç
 - Envoyez une idée au bot : accusé immédiat avec le lien de la fiche, puis les objections.
 - Répondez dans le fil de l'idée : la fiche est mise à jour, vous recevez le lien.
 - `/prete` dans le fil marque la fiche « prête ».
+- `/newidea` ouvre un fil pour une nouvelle idée (`/newidea mon idée` la crée directement).
+  Toutes les commandes, celles en place et celles à concevoir : `docs/commands.md`.
 - Si le challenge a échoué, répondre dans le fil le relance.
 
 ## Mise en route (étapes manuelles, aucune valeur secrète dans Git)

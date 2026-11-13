@@ -17,6 +17,8 @@ MSG = {
         "updated": "Fiche mise à jour : {url}",
         "ready": "Fiche prête : {url}",
         "use_ready": "Utilise /prete dans le fil d'une idée.",
+        "newidea_prompt": "Écris ton idée dans ce fil.",
+        "no_threads": "Je n'ai pas pu créer de fil : active le Threaded mode du bot dans BotFather.",
     },
     "en": {
         "saved": "Idea saved as a draft. Sheet: {url}",
@@ -26,6 +28,8 @@ MSG = {
         "updated": "Sheet updated: {url}",
         "ready": "Sheet ready: {url}",
         "use_ready": "Use /prete inside an idea's thread.",
+        "newidea_prompt": "Write your idea in this thread.",
+        "no_threads": "I could not create a thread: enable the bot's Threaded mode in BotFather.",
     },
 }
 
@@ -85,8 +89,12 @@ class Service:
         text = (text or "").strip()
         if not text:
             return
-        if text.startswith("/prete"):
+        command, _, rest = text.partition(" ")
+        command = command.split("@")[0]  # /newidea@nom_du_bot
+        if command == "/prete":
             return await self._on_ready(thread_id)
+        if command == "/newidea":
+            return await self._on_newidea(rest.strip())
         if text.startswith("/"):
             return
         if thread_id is None:
@@ -96,6 +104,16 @@ class Service:
             # Avec les sujets actives, chaque message arrive dans un fil : un fil sans fiche ouvre une nouvelle idee.
             return await self._on_new_idea(text, thread_id)
         self._queue.put_nowait(lambda: self._reply(fiche.id, text))
+
+    async def _on_newidea(self, text):
+        if text:  # /newidea mon idee : meme chemin qu'une idee ecrite hors de tout fil
+            return await self._on_new_idea(text)
+        try:
+            thread_id = await self.messenger.new_thread("New idea")
+        except Exception:
+            log.exception("creation du fil impossible")
+            return await self.messenger.send(None, say("no_threads"))
+        await self.messenger.send(thread_id, say("newidea_prompt"))
 
     async def _on_new_idea(self, text, thread_id=None):
         if thread_id is None:
