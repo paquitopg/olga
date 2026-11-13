@@ -32,12 +32,18 @@ class FakeBrain:
         self.fail_challenge = False
         self.integrate_raises = None
         self.lang = "fr"
+        self.forced = None
+        self.last_usage = {"five_hour": 0.2, "seven_day": 0.3, "status": "allowed"}
+        self.step = 0.0  # part de la fenetre de 5 h consommee par chaque challenge
+        self.unknown_usage = False
+        self.explore_calls = []
         self.challenge_calls = 0
         self.gate = None  # threading.Event : bloque le challenge tant qu'il n'est pas leve
         self.started = threading.Event()
 
-    def challenge(self, fiche):
+    def challenge(self, fiche, force_lang=None):
         self.events.append("challenge")
+        self.forced = force_lang
         self.challenge_calls += 1
         if self.store is not None:
             assert self.store.get(fiche.id) is not None  # le brouillon existe deja
@@ -46,7 +52,16 @@ class FakeBrain:
             self.gate.wait(5)
         if self.fail_challenge:
             raise BrainUnavailable("recherche indisponible")
-        return self.lang, [Objection("O1", "Marché saturé ?", ["https://a.example"])]
+        self.last_usage = {**self.last_usage, "five_hour": self.last_usage["five_hour"] + self.step}
+        n = len(fiche.objections) + 1
+        return force_lang or self.lang, [Objection(f"O{n}", f"Objection {n} ?" if n > 1 else "Marché saturé ?", ["https://a.example"])]
+
+    def usage(self):
+        return None if self.unknown_usage else dict(self.last_usage)
+
+    def explore(self, fiches, count):
+        self.explore_calls.append(count)
+        return [f"idée voisine {i}" for i in range(1, count + 1)]
 
     def integrate(self, fiche, answer, themes):
         self.events.append("integrate")
@@ -400,3 +415,170 @@ def test_newidea_without_topics_tells_the_owner_how_to_enable_them(store):
 
     run(go())
     assert store.list() == [] and "Threaded mode" in messenger.sent[0][1]
+
+
+def test_rechallenge_adds_new_objections_keeps_old_ones_and_their_answers(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+        await service.on_message(OWNER, "ma réponse", 101)
+        await service.drain()
+        messenger.sent.clear()
+        brain.lang = "en"  # le cerveau change d'avis : la langue de la fiche ne doit pas bouger
+        await service.on_message(OWNER, "/rechallenge", 101)
+        await service.drain()
+
+    run(go())
+    fiche = store.find_by_thread(101)
+    assert [o.id for o in fiche.objections] == ["O1", "O2"]
+    assert fiche.objections[0].reponse == "ma réponse" and fiche.objections[1].reponse == ""
+    assert fiche.lang == "fr" and brain.forced == "fr" and fiche.challenge == "fait"
+    assert "O2. Objection 2" in messenger.sent[0][1] and "O1." not in messenger.sent[0][1]
+
+
+def test_a_failed_rechallenge_does_not_undo_a_successful_challenge(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+        brain.fail_challenge = True
+        messenger.sent.clear()
+        await service.on_message(OWNER, "/rechallenge", 101)
+        await service.drain()
+
+    run(go())
+    fiche = store.find_by_thread(101)
+    assert fiche.challenge == "fait" and len(fiche.objections) == 1
+    assert "report" in messenger.sent[0][1].lower()
+
+
+def test_rechallenge_outside_an_idea_thread_is_refused_politely(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "/rechallenge", None)
+        await service.drain()
+
+    run(go())
+    assert store.list() == [] and "/rechallenge" in messenger.sent[0][1] and brain.challenge_calls == 0
+
+
+def test_lang_switches_the_fiche_language_and_later_messages_follow(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+        messenger.sent.clear()
+        await service.on_message(OWNER, "/lang en", 101)
+        await service.drain()
+        await service.on_message(OWNER, "/prete", 101)
+        await service.drain()
+
+    run(go())
+    assert store.find_by_thread(101).lang == "en"
+    assert messenger.sent[0][1].startswith("Sheet language: English")
+    assert messenger.sent[1][1].startswith("Sheet ready:")
+
+
+def test_lang_with_a_wrong_argument_or_outside_a_thread_explains_usage(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+        messenger.sent.clear()
+        await service.on_message(OWNER, "/lang de", 101)
+        await service.on_message(OWNER, "/lang", 101)
+        await service.on_message(OWNER, "/lang fr", None)
+        await service.drain()
+
+    run(go())
+    assert store.find_by_thread(101).lang == "fr"
+    assert [("Usage" in m) or ("/lang" in m) for _, m in messenger.sent] == [True, True, True]
+
+
+def explore_setup(store):
+    base = store.create("idée de départ", thread_id=7)
+    base.challenge = "fait"  # sinon le demarrage reprend son challenge et consomme du quota
+    store.save(base)
+    return make(store)
+
+
+def run_explore(service, command="/explore"):
+    async def go():
+        service.start()
+        await service.on_message(OWNER, command, None)
+        await service.drain()
+
+    run(go())
+
+
+def test_explore_creates_neighbouring_ideas_each_with_a_thread_a_challenge_and_a_summary(store):
+    service, messenger, brain, _ = explore_setup(store)
+    run_explore(service)
+    new = [f for f in store.list() if f.raw_idea.startswith("idée voisine")]
+    assert sorted(f.raw_idea for f in new) == ["idée voisine 1", "idée voisine 2", "idée voisine 3"]
+    assert all(f.thread_id and f.challenge == "fait" and f.objections for f in new)
+    assert brain.explore_calls == [3]
+    assert "Exploration terminée : 3" in messenger.sent[-1][1] and "5 h 20 %" in messenger.sent[-1][1]
+
+
+def test_explore_takes_the_number_of_ideas_from_the_command(store):
+    service, messenger, brain, _ = explore_setup(store)
+    run_explore(service, "/explore 2")
+    assert brain.explore_calls == [2] and len(store.list()) == 3
+
+
+def test_explore_stops_when_the_five_hour_window_is_used_up(store):
+    service, messenger, brain, _ = explore_setup(store)
+    brain.step = 0.5  # 0.2 -> 0.7 -> 1.2 : epuisee apres la deuxieme idee
+    run_explore(service, "/explore 5")
+    assert len([f for f in store.list() if f.raw_idea.startswith("idée voisine")]) == 2
+    assert "Arrêt" in messenger.sent[-1][1] and "Exploration terminée : 2" in messenger.sent[-1][1]
+
+
+def test_explore_may_use_the_whole_five_hour_window_but_not_a_used_up_one(store):
+    service, messenger, brain, _ = explore_setup(store)
+    brain.last_usage = {"five_hour": 0.99, "seven_day": 0.1, "status": "allowed"}  # 99 % : on explore encore
+    run_explore(service, "/explore 1")
+    assert brain.explore_calls == [1]
+
+    service, messenger, brain, _ = explore_setup(store)
+    brain.last_usage = {"five_hour": 0.5, "seven_day": 0.1, "status": "rejected"}  # refuse par Claude : on n'explore pas
+    run_explore(service, "/explore 1")
+    assert brain.explore_calls == [] and "Quota" in messenger.sent[-1][1]
+
+
+def test_explore_does_not_start_when_the_weekly_limit_is_reached(store):
+    service, messenger, brain, _ = explore_setup(store)
+    brain.last_usage = {"five_hour": 0.1, "seven_day": 0.9, "status": "allowed"}
+    run_explore(service)
+    assert brain.explore_calls == [] and "85 %" in messenger.sent[-1][1] and "90 %" in messenger.sent[-1][1]
+
+
+def test_explore_does_not_start_when_the_quota_cannot_be_read(store):
+    service, messenger, brain, _ = explore_setup(store)
+    brain.unknown_usage = True
+    run_explore(service)
+    assert brain.explore_calls == [] and "quota" in messenger.sent[-1][1].lower()
+
+
+def test_explore_needs_at_least_one_fiche(store):
+    service, messenger, brain, _ = make(store)
+    run_explore(service)
+    assert brain.explore_calls == [] and "au moins une fiche" in messenger.sent[-1][1]
+
+
+def test_explore_rejects_a_bad_count(store):
+    service, messenger, brain, _ = explore_setup(store)
+    run_explore(service, "/explore 50")
+    assert brain.explore_calls == [] and "Usage" in messenger.sent[-1][1]
