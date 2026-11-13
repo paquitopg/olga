@@ -209,3 +209,62 @@ def test_a_second_challenge_numbers_on_and_does_not_repeat_and_can_force_the_lan
     assert [o.id for o in found] == ["O3"] and lang == "fr"
     assert "Marché saturé ?" in text and "Prix ?" in text  # objections deja posees
     assert "Write every objection in French." in text and "Choose the output language" not in text
+
+
+
+def stream(*events):
+    """Corps du faux claude : un evenement JSON par ligne, comme `--output-format stream-json`."""
+    return "\n".join(f"print(json.dumps({e!r}))" for e in events)
+
+
+QUOTA_EVENT = {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "unifiedWindows": {
+    "five_hour": {"utilization": 0.71, "resetsAt": 1, "status": "allowed"},
+    "seven_day": {"utilization": 0.18, "resetsAt": 2, "status": "allowed"}}}}
+OK_RESULT = {"type": "result", "is_error": False, "result": "ok"}
+
+
+def test_usage_reads_both_quota_windows(tmp_path):
+    b = brain(tmp_path, stream(QUOTA_EVENT, OK_RESULT))
+    assert b.usage() == {"five_hour": 0.71, "seven_day": 0.18, "status": "allowed"}
+
+
+def test_usage_is_none_when_claude_reports_no_quota(tmp_path):
+    assert brain(tmp_path, stream(OK_RESULT)).usage() is None
+
+
+def test_usage_still_reads_the_quota_when_the_call_itself_is_refused(tmp_path):
+    exhausted = {**QUOTA_EVENT, "rate_limit_info": {**QUOTA_EVENT["rate_limit_info"], "status": "rejected"}}
+    refused = {"type": "result", "is_error": True, "result": "limit reached"}
+    assert brain(tmp_path, stream(exhausted, refused)).usage()["status"] == "rejected"
+
+
+def test_every_call_keeps_the_latest_quota(tmp_path):
+    answer = {"type": "result", "is_error": False, "result": json.dumps({"objections": [{"texte": "t", "sources": ["https://x.example"]}]})}
+    b = brain(tmp_path, stream(QUOTA_EVENT, answer))
+    b.challenge(Fiche.new("x"))
+    assert b.last_usage["seven_day"] == 0.18
+
+
+def test_explore_returns_at_most_count_ideas_and_uses_no_tool(tmp_path):
+    seen = tmp_path / "prompt.txt"
+    argv_file = tmp_path / "argv.json"
+    script = tmp_path / "claude"
+    script.write_text(
+        f"#!{sys.executable}\nimport sys, json\nopen({str(seen)!r}, 'w').write(sys.stdin.read())\njson.dump(sys.argv, open({str(argv_file)!r}, 'w'))\n"
+        + reply({"ideas": [{"idee": "un"}, {"idee": "deux"}, {"idee": "  "}, {"idee": "trois"}]}))
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    b = Brain(claude_bin=str(script), model="sonnet", token="t", api_key=None, timeout=20)
+    f = Fiche.new("Assurance pour agents IA")
+    f.themes = ["assurance"]
+    assert b.explore([f], 2) == ["un", "deux"]
+    text = seen.read_text()
+    assert "Assurance pour agents IA" in text and "assurance" in text and "lives in France" in text and "$" not in text.split("Existing sheets:")[0]
+    argv = json.loads(argv_file.read_text())
+    assert argv[argv.index("--tools") + 1] == "" and "--allowedTools" not in argv
+
+
+def test_explore_without_any_idea_is_unavailable(tmp_path):
+    with pytest.raises(BrainUnavailable):
+        brain(tmp_path, reply({"ideas": []})).explore([Fiche.new("x")], 3)
+    with pytest.raises(BrainUnavailable):
+        brain(tmp_path, reply({"ideas": None})).explore([Fiche.new("x")], 3)

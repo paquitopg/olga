@@ -52,3 +52,11 @@ def test_needs_a_claude_credential(monkeypatch, tmp_path):
     with pytest.raises(config.MissingSetting) as err:
         config.load(secrets_dir=tmp_path)
     assert "CLAUDE_CODE_OAUTH_TOKEN" in str(err.value)
+
+
+def test_explore_ceilings_default_to_the_whole_five_hour_window_and_85_percent_weekly(monkeypatch, tmp_path):
+    set_env(monkeypatch)
+    s = config.load(secrets_dir=tmp_path)
+    assert (s.explore_max_five_hour, s.explore_max_seven_day) == (1.0, 0.85)
+    monkeypatch.setenv("EXPLORE_MAX_SEVEN_DAY", "0.6")
+    assert config.load(secrets_dir=tmp_path).explore_max_seven_day == 0.6

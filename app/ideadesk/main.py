@@ -57,7 +57,8 @@ async def serve(settings):
     await asyncio.to_thread(store.ensure_clone)
     brain = Brain(settings.claude_bin, settings.claude_model, settings.claude_token, settings.anthropic_api_key)
     bot = Bot(settings.telegram_bot_token)
-    service = Service(store, brain, TelegramMessenger(bot, settings.owner_telegram_id), settings.public_base_url, settings.owner_telegram_id)
+    service = Service(store, brain, TelegramMessenger(bot, settings.owner_telegram_id), settings.public_base_url, settings.owner_telegram_id,
+                      explore_limits=(settings.explore_max_five_hour, settings.explore_max_seven_day))
     service.start()
     dp = build_dispatcher(service)
     app = create_app(store, settings.site_password_hash, settings.session_secret)
@@ -70,6 +71,7 @@ async def serve(settings):
                 BotCommand(command="newidea", description="New idea / Nouvelle idée"),
                 BotCommand(command="prete", description="Mark this sheet ready / Fiche prête"),
                 BotCommand(command="rechallenge", description="New objections for this sheet / Nouvelles objections"),
+                BotCommand(command="explore", description="Use spare quota to find new ideas / Explorer de nouvelles idées"),
                 BotCommand(command="lang", description="Sheet language: /lang fr or /lang en / Langue de la fiche"),
             ])
         except Exception:
