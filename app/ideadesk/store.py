@@ -16,6 +16,15 @@ class GitError(RuntimeError):
     pass
 
 
+def themes_of(fiches):
+    """Themes distincts (sans doublon de casse) d'une liste de fiches deja chargee."""
+    seen = {}
+    for f in fiches:
+        for t in f.themes:
+            seen.setdefault(t.lower(), t)
+    return sorted(seen.values(), key=str.lower)
+
+
 class Store:
     def __init__(self, directory, repo_url, token):
         self.dir = Path(directory)
@@ -58,14 +67,14 @@ class Store:
         return sorted(fiches, key=lambda f: f.updated, reverse=True)
 
     def find_by_thread(self, thread_id):
-        return next((f for f in self.list() if f.thread_id == thread_id), None)
+        for path in (self.dir / "fiches").glob("*.md"):
+            fiche = parse(path.read_text())
+            if fiche.thread_id == thread_id:
+                return fiche
+        return None
 
     def themes(self):
-        seen = {}
-        for f in self.list():
-            for t in f.themes:
-                seen.setdefault(t.lower(), t)
-        return sorted(seen.values(), key=str.lower)
+        return themes_of(self.list())
 
     def create(self, raw_idea, thread_id=None):
         fiche = Fiche.new(raw_idea, thread_id)
@@ -83,8 +92,9 @@ class Store:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(render(fiche))
         os.replace(tmp, path)
-        self._git("add", str(path.relative_to(self.dir)))
-        self._git("commit", "-m", f"fiche: {fiche.title[:60]}", "--", str(path.relative_to(self.dir)))
+        rel = str(path.relative_to(self.dir))
+        self._git("add", rel)
+        self._git("commit", "-m", f"fiche: {fiche.title[:60]}", "--", rel)
         try:
             self._git("push", "origin", "HEAD")
         except GitError as err:

@@ -14,20 +14,24 @@ from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
 from starlette.middleware.sessions import SessionMiddleware
 
+from .fiche import DRAFT, READY
+from .store import themes_of
+
 TEMPLATES = Path(__file__).parent / "templates"
 MAX_FAILURES, WINDOW = 5, 300
+SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 
 
 def hash_password(password, salt=None):
     salt = salt or os.urandom(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+    digest = hashlib.scrypt(password.encode(), salt=salt, **SCRYPT)
     return f"scrypt${salt.hex()}${digest.hex()}"
 
 
 def _check(password, stored):
     try:
         _, salt, digest = stored.split("$")
-        expected = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=2**14, r=8, p=1)
+        expected = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), **SCRYPT)
     except ValueError:
         return False
     return hmac.compare_digest(expected.hex(), digest)
@@ -85,13 +89,14 @@ def create_app(store, password_hash, session_secret):
 
     @app.get("/", response_class=HTMLResponse, dependencies=[Depends(need_login)])
     def index(request: Request, statut: str = "", theme: str = ""):
-        fiches = store.list()
-        if statut in ("brouillon", "prete"):
+        all_fiches = store.list()
+        fiches = all_fiches
+        if statut in (DRAFT, READY):
             fiches = [f for f in fiches if f.status == statut]
         if theme:
             fiches = [f for f in fiches if theme.lower() in (t.lower() for t in f.themes)]
         return templates.TemplateResponse(
-            request, "index.html", {"fiches": fiches, "themes": store.themes(), "statut": statut, "theme": theme})
+            request, "index.html", {"fiches": fiches, "themes": themes_of(all_fiches), "statut": statut, "theme": theme})
 
     @app.get("/fiche/{fiche_id}", response_class=HTMLResponse, dependencies=[Depends(need_login)])
     def fiche_page(request: Request, fiche_id: str):

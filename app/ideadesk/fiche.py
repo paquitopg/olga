@@ -9,6 +9,10 @@ import yaml
 S_RAW, S_PROBLEM, S_TARGET, S_IDEA = "Idée brute", "Problème", "Cible", "Idée"
 S_OBJ, S_QUESTIONS = "Objections et réponses", "Questions ouvertes"
 
+# Valeurs ecrites dans l'en-tete des fiches (statut, puis etat du challenge).
+DRAFT, READY = "brouillon", "prete"
+CHALLENGE_PENDING, CHALLENGE_DONE, CHALLENGE_FAILED = "en_cours", "fait", "echec"
+
 
 @dataclass
 class Objection:
@@ -30,21 +34,28 @@ class Fiche:
     open_questions: list = field(default_factory=list)
     themes: list = field(default_factory=list)
     thread_id: int | None = None
-    status: str = "brouillon"
-    challenge: str = "en_cours"
+    status: str = DRAFT
+    challenge: str = CHALLENGE_PENDING
     created: str = ""
     updated: str = ""
 
     @classmethod
     def new(cls, raw_idea, thread_id=None):
         now = datetime.now(timezone.utc)
-        first_line = raw_idea.strip().splitlines()[0] if raw_idea.strip() else ""
-        title = first_line[:60] or "Idée sans titre"
         stamp = now.isoformat(timespec="seconds")
         return cls(
             id=f"{now:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}",
-            title=title, raw_idea=raw_idea, thread_id=thread_id, created=stamp, updated=stamp,
+            title=title_of(raw_idea), raw_idea=raw_idea, thread_id=thread_id, created=stamp, updated=stamp,
         )
+
+
+def title_of(raw_idea):
+    lines = raw_idea.strip().splitlines()
+    return (lines[0][:60] if lines else "") or "Idée sans titre"
+
+
+def _oneline(text):
+    return " ".join(text.split())
 
 
 def _esc(text):
@@ -65,12 +76,12 @@ def render(f):
     raw = "\n".join(("> " + l) if l else ">" for l in f.raw_idea.splitlines())
     objs = []
     for o in f.objections:
-        block = [f"### {o.id}. {' '.join(o.texte.split())}", "", "**Sources :**"]
+        block = [f"### {o.id}. {_oneline(o.texte)}", "", "**Sources :**"]
         block += [f"- {u}" for u in o.sources]
         block += ["", f"**Réponse :** {_esc(o.reponse)}"]
         objs.append("\n".join(block))
     parts = [
-        f"---\n{head}---", f"# {' '.join(f.title.split())}",
+        f"---\n{head}---", f"# {_oneline(f.title)}",
         f"## {S_RAW}\n{raw}",
         f"## {S_PROBLEM}\n{_esc(f.problem)}",
         f"## {S_TARGET}\n{_esc(f.target)}",

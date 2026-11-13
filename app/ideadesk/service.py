@@ -3,7 +3,7 @@ import asyncio
 import logging
 
 from .brain import BrainUnavailable
-from .fiche import Fiche
+from .fiche import CHALLENGE_DONE, CHALLENGE_FAILED, READY, title_of
 
 log = logging.getLogger("ideadesk.service")
 
@@ -13,6 +13,7 @@ class Service:
         self.store, self.brain, self.messenger = store, brain, messenger
         self.base_url, self.owner_id = base_url.rstrip("/"), owner_id
         self._queue = None
+        self._worker_task = None
 
     def start(self):
         # Une seule file : tous les appels au cerveau passent l'un apres l'autre.
@@ -61,7 +62,7 @@ class Service:
 
     async def _on_new_idea(self, text):
         try:
-            thread_id = await self.messenger.new_thread(Fiche.new(text).title)
+            thread_id = await self.messenger.new_thread(title_of(text))
         except Exception:
             log.exception("creation du fil impossible, idée gardée sans fil")
             thread_id = None
@@ -74,14 +75,14 @@ class Service:
         try:
             fiche.objections = await asyncio.to_thread(self.brain.challenge, fiche)
         except BrainUnavailable as err:
-            fiche.challenge = "echec"
+            fiche.challenge = CHALLENGE_FAILED
             await self._save(fiche)
             await self.messenger.send(
                 fiche.thread_id,
                 f"Le challenge est reporté ({err}). Réponds dans ce fil pour le relancer. Fiche : {self._url(fiche)}",
             )
             return
-        fiche.challenge = "fait"
+        fiche.challenge = CHALLENGE_DONE
         await self._save(fiche)
         lines = []
         for o in fiche.objections:
@@ -90,7 +91,7 @@ class Service:
 
     async def _reply(self, fiche_id, text):
         fiche = await self._fiche(fiche_id)
-        if fiche.challenge == "echec":
+        if fiche.challenge == CHALLENGE_FAILED:
             await self._challenge(fiche_id)
             fiche = await self._fiche(fiche_id)
         try:
@@ -109,7 +110,7 @@ class Service:
 
         async def mark():
             current = await self._fiche(fiche.id)
-            current.status = "prete"
+            current.status = READY
             await self._save(current)
             await self.messenger.send(current.thread_id, f"Fiche prête : {self._url(current)}")
 

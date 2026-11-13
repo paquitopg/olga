@@ -29,8 +29,9 @@ async def run_all(server, service, start_poll, stop_poll, drain_timeout=30):
             await asyncio.wait_for(service.drain(), drain_timeout)
         except asyncio.TimeoutError:
             log.warning("des taches n'ont pas fini avant l'arret")
-    if not poll.cancelled() and poll.exception():
-        raise poll.exception()
+    error = None if poll.cancelled() else poll.exception()
+    if error:
+        raise error
 
 
 async def serve(settings):
