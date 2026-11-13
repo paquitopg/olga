@@ -16,8 +16,9 @@ MSG = {
         "no_integrate": "Je n'ai pas pu intégrer ta réponse ({why}). Renvoie-la plus tard.",
         "updated": "Fiche mise à jour : {url}",
         "ready": "Fiche prête : {url}",
-        "not_found": "Je ne retrouve pas cette idée.",
         "use_ready": "Utilise /prete dans le fil d'une idée.",
+        "newidea_prompt": "Écris ton idée dans ce fil.",
+        "no_threads": "Je n'ai pas pu créer de fil : active le Threaded mode du bot dans BotFather.",
     },
     "en": {
         "saved": "Idea saved as a draft. Sheet: {url}",
@@ -26,8 +27,9 @@ MSG = {
         "no_integrate": "I could not fold in your answer ({why}). Please send it again later.",
         "updated": "Sheet updated: {url}",
         "ready": "Sheet ready: {url}",
-        "not_found": "I can't find that idea.",
         "use_ready": "Use /prete inside an idea's thread.",
+        "newidea_prompt": "Write your idea in this thread.",
+        "no_threads": "I could not create a thread: enable the bot's Threaded mode in BotFather.",
     },
 }
 
@@ -87,23 +89,38 @@ class Service:
         text = (text or "").strip()
         if not text:
             return
-        if text.startswith("/prete"):
+        command, _, rest = text.partition(" ")
+        command = command.split("@")[0]  # /newidea@nom_du_bot
+        if command == "/prete":
             return await self._on_ready(thread_id)
+        if command == "/newidea":
+            return await self._on_newidea(rest.strip())
         if text.startswith("/"):
             return
         if thread_id is None:
             return await self._on_new_idea(text)
         fiche = await asyncio.to_thread(self.store.find_by_thread, thread_id)
         if fiche is None:
-            return await self.messenger.send(thread_id, say("not_found"))
+            # Avec les sujets actives, chaque message arrive dans un fil : un fil sans fiche ouvre une nouvelle idee.
+            return await self._on_new_idea(text, thread_id)
         self._queue.put_nowait(lambda: self._reply(fiche.id, text))
 
-    async def _on_new_idea(self, text):
+    async def _on_newidea(self, text):
+        if text:  # /newidea mon idee : meme chemin qu'une idee ecrite hors de tout fil
+            return await self._on_new_idea(text)
         try:
-            thread_id = await self.messenger.new_thread(title_of(text))
+            thread_id = await self.messenger.new_thread("New idea")
         except Exception:
-            log.exception("creation du fil impossible, idée gardée sans fil")
-            thread_id = None
+            log.exception("creation du fil impossible")
+            return await self.messenger.send(None, say("no_threads"))
+        await self.messenger.send(thread_id, say("newidea_prompt"))
+
+    async def _on_new_idea(self, text, thread_id=None):
+        if thread_id is None:
+            try:
+                thread_id = await self.messenger.new_thread(title_of(text))
+            except Exception:
+                log.exception("creation du fil impossible, idée gardée sans fil")
         fiche = await asyncio.to_thread(self.store.create, text, thread_id)
         try:
             await self.messenger.send(thread_id, say("saved", url=self._url(fiche)))

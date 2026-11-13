@@ -7,6 +7,7 @@ import sys
 
 import uvicorn
 from aiogram import Bot
+from aiogram.types import BotCommand
 
 from .bot import TelegramMessenger, build_dispatcher
 from .brain import Brain
@@ -64,6 +65,13 @@ async def serve(settings):
 
     async def start_poll():
         await bot.delete_webhook()  # interrogation continue et webhook s'excluent
+        try:  # menu "/" de Telegram ; un echec ici ne doit pas empecher le bot de demarrer
+            await bot.set_my_commands([
+                BotCommand(command="newidea", description="New idea / Nouvelle idée"),
+                BotCommand(command="prete", description="Mark this sheet ready / Fiche prête"),
+            ])
+        except Exception:
+            log.exception("menu des commandes non enregistré")
         await dp.start_polling(bot, handle_signals=False)
 
     async def stop_poll():
