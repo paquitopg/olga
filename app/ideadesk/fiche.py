@@ -6,8 +6,15 @@ from datetime import datetime, timezone
 
 import yaml
 
-S_RAW, S_PROBLEM, S_TARGET, S_IDEA = "Idée brute", "Problème", "Cible", "Idée"
-S_OBJ, S_QUESTIONS = "Objections et réponses", "Questions ouvertes"
+# Titres de sections et libelles fixes, par langue de la fiche (choisie selon le sujet de l'idee).
+LABELS = {
+    "fr": {"raw": "Idée brute", "problem": "Problème", "target": "Cible", "idea": "Idée",
+           "obj": "Objections et réponses", "questions": "Questions ouvertes", "sources": "Sources :", "answer": "Réponse :"},
+    "en": {"raw": "Raw idea", "problem": "Problem", "target": "Target", "idea": "Idea",
+           "obj": "Objections and answers", "questions": "Open questions", "sources": "Sources:", "answer": "Answer:"},
+}
+DEFAULT_LANG = "en"
+LEGACY_LANG = "fr"  # les fiches ecrites avant ce choix n'ont pas de langue et sont en francais
 
 # Valeurs ecrites dans l'en-tete des fiches (statut, puis etat du challenge).
 DRAFT, READY = "brouillon", "prete"
@@ -36,6 +43,7 @@ class Fiche:
     thread_id: int | None = None
     status: str = DRAFT
     challenge: str = CHALLENGE_PENDING
+    lang: str = DEFAULT_LANG
     created: str = ""
     updated: str = ""
 
@@ -68,26 +76,27 @@ def _unesc(text):
 
 
 def render(f):
+    L = LABELS[f.lang]
     meta = {
-        "id": f.id, "title": f.title, "status": f.status, "challenge": f.challenge,
+        "id": f.id, "title": f.title, "status": f.status, "challenge": f.challenge, "lang": f.lang,
         "themes": f.themes, "created": f.created, "updated": f.updated, "telegram_thread_id": f.thread_id,
     }
     head = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False)
     raw = "\n".join(("> " + l) if l else ">" for l in f.raw_idea.splitlines())
     objs = []
     for o in f.objections:
-        block = [f"### {o.id}. {_oneline(o.texte)}", "", "**Sources :**"]
+        block = [f"### {o.id}. {_oneline(o.texte)}", "", f"**{L['sources']}**"]
         block += [f"- {u}" for u in o.sources]
-        block += ["", f"**Réponse :** {_esc(o.reponse)}"]
+        block += ["", f"**{L['answer']}** {_esc(o.reponse)}"]
         objs.append("\n".join(block))
     parts = [
         f"---\n{head}---", f"# {_oneline(f.title)}",
-        f"## {S_RAW}\n{raw}",
-        f"## {S_PROBLEM}\n{_esc(f.problem)}",
-        f"## {S_TARGET}\n{_esc(f.target)}",
-        f"## {S_IDEA}\n{_esc(f.idea)}",
-        f"## {S_OBJ}\n" + "\n\n".join(objs),
-        f"## {S_QUESTIONS}\n" + "\n".join(f"- {_esc(q)}" for q in f.open_questions),
+        f"## {L['raw']}\n{raw}",
+        f"## {L['problem']}\n{_esc(f.problem)}",
+        f"## {L['target']}\n{_esc(f.target)}",
+        f"## {L['idea']}\n{_esc(f.idea)}",
+        f"## {L['obj']}\n" + "\n\n".join(objs),
+        f"## {L['questions']}\n" + "\n".join(f"- {_esc(q)}" for q in f.open_questions),
     ]
     return "\n\n".join(parts) + "\n"
 
@@ -95,6 +104,8 @@ def render(f):
 def parse(text):
     _, head, body = text.split("---\n", 2)
     meta = yaml.safe_load(head)
+    lang = meta.get("lang") or LEGACY_LANG
+    L = LABELS[lang]
     sections, current = {}, None
     for line in body.splitlines():
         if line.startswith("## "):
@@ -106,19 +117,19 @@ def parse(text):
     def block(name):
         return "\n".join(sections.get(name, [])).strip("\n")
 
-    raw = "\n".join(l[2:] if l.startswith("> ") else "" for l in block(S_RAW).splitlines())
+    raw = "\n".join(l[2:] if l.startswith("> ") else "" for l in block(L["raw"]).splitlines())
     objections = []
-    for chunk in re.split(r"(?m)^### ", block(S_OBJ))[1:]:
+    for chunk in re.split(r"(?m)^### ", block(L["obj"]))[1:]:
         heading, _, rest = chunk.partition("\n")
         oid, _, texte = heading.partition(". ")
-        src_part, _, rep_part = rest.partition("**Réponse :**")
+        src_part, _, rep_part = rest.partition(f"**{L['answer']}**")
         sources = [l[2:].strip() for l in src_part.splitlines() if l.startswith("- ")]
         objections.append(Objection(oid, texte, sources, _unesc(rep_part.strip("\n ")) if rep_part.strip() else ""))
-    questions = [_unesc(l[2:]) for l in block(S_QUESTIONS).splitlines() if l.startswith("- ")]
+    questions = [_unesc(l[2:]) for l in block(L["questions"]).splitlines() if l.startswith("- ")]
     return Fiche(
         id=meta["id"], title=meta["title"], raw_idea=raw,
-        problem=_unesc(block(S_PROBLEM)), target=_unesc(block(S_TARGET)), idea=_unesc(block(S_IDEA)),
+        problem=_unesc(block(L["problem"])), target=_unesc(block(L["target"])), idea=_unesc(block(L["idea"])),
         objections=objections, open_questions=questions, themes=list(meta.get("themes") or []),
-        thread_id=meta.get("telegram_thread_id"), status=meta["status"], challenge=meta["challenge"],
+        thread_id=meta.get("telegram_thread_id"), status=meta["status"], challenge=meta["challenge"], lang=lang,
         created=meta.get("created") or "", updated=meta.get("updated") or "",
     )

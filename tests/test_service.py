@@ -28,6 +28,7 @@ class FakeBrain:
         self.events, self.store = events, store
         self.fail_challenge = False
         self.integrate_raises = None
+        self.lang = "fr"
         self.challenge_calls = 0
         self.gate = None  # threading.Event : bloque le challenge tant qu'il n'est pas leve
         self.started = threading.Event()
@@ -42,7 +43,7 @@ class FakeBrain:
             self.gate.wait(5)
         if self.fail_challenge:
             raise BrainUnavailable("recherche indisponible")
-        return [Objection("O1", "Marché saturé ?", ["https://a.example"])]
+        return self.lang, [Objection("O1", "Marché saturé ?", ["https://a.example"])]
 
     def integrate(self, fiche, answer, themes):
         self.events.append("integrate")
@@ -306,3 +307,30 @@ def test_an_unexpected_error_in_a_job_does_not_stop_the_next_job(store):
 
     run(go())
     assert store.find_by_thread(101).problem == "P:seconde réponse"
+
+
+def test_an_english_fiche_gets_english_messages_and_a_french_one_french_messages(store):
+    for lang, expected_start in (("en", "Objections:"), ("fr", "Objections :")):
+        service, messenger, brain, _ = make(store)
+        brain.lang = lang
+
+        async def go():
+            service.start()
+            await service.on_message(OWNER, f"idea {lang}", None)
+            await service.drain()
+
+        run(go())
+        assert messenger.sent[1][1].startswith(expected_start)
+
+
+def test_before_the_language_is_known_the_acknowledgement_is_bilingual(store):
+    service, messenger, brain, _ = make(store)
+
+    async def go():
+        service.start()
+        await service.on_message(OWNER, "idée", None)
+        await service.drain()
+
+    run(go())
+    ack = messenger.sent[0][1]
+    assert "Idée enregistrée" in ack and "Idea saved" in ack

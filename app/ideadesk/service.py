@@ -7,6 +7,37 @@ from .fiche import CHALLENGE_DONE, CHALLENGE_FAILED, CHALLENGE_PENDING, READY, t
 
 log = logging.getLogger("ideadesk.service")
 
+# Messages du bot, par langue de la fiche. Sans fiche connue (ou avant le choix de la langue) : les deux.
+MSG = {
+    "fr": {
+        "saved": "Idée enregistrée en brouillon. Fiche : {url}",
+        "objections": "Objections :",
+        "postponed": "Le challenge est reporté ({why}). Réponds dans ce fil pour le relancer. Fiche : {url}",
+        "no_integrate": "Je n'ai pas pu intégrer ta réponse ({why}). Renvoie-la plus tard.",
+        "updated": "Fiche mise à jour : {url}",
+        "ready": "Fiche prête : {url}",
+        "not_found": "Je ne retrouve pas cette idée.",
+        "use_ready": "Utilise /prete dans le fil d'une idée.",
+    },
+    "en": {
+        "saved": "Idea saved as a draft. Sheet: {url}",
+        "objections": "Objections:",
+        "postponed": "The challenge is postponed ({why}). Reply in this thread to retry it. Sheet: {url}",
+        "no_integrate": "I could not fold in your answer ({why}). Please send it again later.",
+        "updated": "Sheet updated: {url}",
+        "ready": "Sheet ready: {url}",
+        "not_found": "I can't find that idea.",
+        "use_ready": "Use /prete inside an idea's thread.",
+    },
+}
+
+
+def say(key, lang=None, **kw):
+    """Message dans la langue de la fiche ; les deux langues si elle n'est pas encore choisie."""
+    if lang in MSG:
+        return MSG[lang][key].format(**kw)
+    return " / ".join(MSG[l][key].format(**kw) for l in MSG)
+
 
 class Service:
     def __init__(self, store, brain, messenger, base_url, owner_id):
@@ -64,7 +95,7 @@ class Service:
             return await self._on_new_idea(text)
         fiche = await asyncio.to_thread(self.store.find_by_thread, thread_id)
         if fiche is None:
-            return await self.messenger.send(thread_id, "Je ne retrouve pas cette idée.")
+            return await self.messenger.send(thread_id, say("not_found"))
         self._queue.put_nowait(lambda: self._reply(fiche.id, text))
 
     async def _on_new_idea(self, text):
@@ -75,7 +106,7 @@ class Service:
             thread_id = None
         fiche = await asyncio.to_thread(self.store.create, text, thread_id)
         try:
-            await self.messenger.send(thread_id, f"Idée enregistrée en brouillon. Fiche : {self._url(fiche)}")
+            await self.messenger.send(thread_id, say("saved", url=self._url(fiche)))
         except Exception:
             log.exception("accusé non envoyé, le challenge part quand même")
         self._queue.put_nowait(lambda: self._challenge(fiche.id))
@@ -83,21 +114,18 @@ class Service:
     async def _challenge(self, fiche_id):
         fiche = await self._fiche(fiche_id)
         try:
-            fiche.objections = await asyncio.to_thread(self.brain.challenge, fiche)
+            fiche.lang, fiche.objections = await asyncio.to_thread(self.brain.challenge, fiche)
         except BrainUnavailable as err:
             fiche.challenge = CHALLENGE_FAILED
             await self._save(fiche)
-            await self.messenger.send(
-                fiche.thread_id,
-                f"Le challenge est reporté ({err}). Réponds dans ce fil pour le relancer. Fiche : {self._url(fiche)}",
-            )
+            await self.messenger.send(fiche.thread_id, say("postponed", why=err, url=self._url(fiche)))
             return
         fiche.challenge = CHALLENGE_DONE
         await self._save(fiche)
         lines = []
         for o in fiche.objections:
             lines.append(f"{o.id}. {o.texte}\n   " + "\n   ".join(o.sources))
-        await self.messenger.send(fiche.thread_id, "Objections :\n\n" + "\n\n".join(lines) + f"\n\nFiche : {self._url(fiche)}")
+        await self.messenger.send(fiche.thread_id, say("objections", fiche.lang) + "\n\n" + "\n\n".join(lines) + f"\n\n{self._url(fiche)}")
 
     async def _reply(self, fiche_id, text):
         fiche = await self._fiche(fiche_id)
@@ -108,20 +136,20 @@ class Service:
             themes = await asyncio.to_thread(self.store.themes)
             fiche = await asyncio.to_thread(self.brain.integrate, fiche, text, themes)
         except BrainUnavailable as err:
-            await self.messenger.send(fiche.thread_id, f"Je n'ai pas pu intégrer ta réponse ({err}). Renvoie-la plus tard.")
+            await self.messenger.send(fiche.thread_id, say("no_integrate", fiche.lang, why=err))
             return
         await self._save(fiche)
-        await self.messenger.send(fiche.thread_id, f"Fiche mise à jour : {self._url(fiche)}")
+        await self.messenger.send(fiche.thread_id, say("updated", fiche.lang, url=self._url(fiche)))
 
     async def _on_ready(self, thread_id):
         fiche = None if thread_id is None else await asyncio.to_thread(self.store.find_by_thread, thread_id)
         if fiche is None:
-            return await self.messenger.send(thread_id, "Utilise /prete dans le fil d'une idée.")
+            return await self.messenger.send(thread_id, say("use_ready"))
 
         async def mark():
             current = await self._fiche(fiche.id)
             current.status = READY
             await self._save(current)
-            await self.messenger.send(current.thread_id, f"Fiche prête : {self._url(current)}")
+            await self.messenger.send(current.thread_id, say("ready", current.lang, url=self._url(current)))
 
         self._queue.put_nowait(mark)

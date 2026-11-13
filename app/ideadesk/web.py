@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
 from starlette.middleware.sessions import SessionMiddleware
 
-from .fiche import DRAFT, READY
+from .fiche import DRAFT, LABELS, READY
 from .store import themes_of
 
 TEMPLATES = Path(__file__).parent / "templates"
@@ -115,7 +115,7 @@ def create_app(store, password_hash, session_secret):
         fiche = store.get(fiche_id) if fiche_id.replace("-", "").isalnum() else None
         if fiche is None:
             raise HTTPException(status_code=404)
-        return templates.TemplateResponse(request, "fiche.html", {"fiche": fiche})
+        return templates.TemplateResponse(request, "fiche.html", {"fiche": fiche, "t": LABELS[fiche.lang]})
 
     return app
 
